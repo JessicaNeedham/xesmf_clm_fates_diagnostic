@@ -86,6 +86,13 @@ def convert_weird_subunits(unit):
     elif "month" in unit:
         new_unit = unit.replace("month", "y")
         return new_unit, 12.
+    # TODO super hacky for MEGAN, might need fixing later
+    elif "sec" in unit:
+        new_unit = unit.replace("sec", "s")
+        return new_unit, 1
+    elif "m2" in unit:
+        new_unit = unit.replace("m2", "m^2")
+        return new_unit, 1
     return unit, 1
 
 def deal_with_weird_units_to_and_from(unit_from, unit_to):
@@ -100,15 +107,25 @@ def unit_convert_single_unit(unit_from, unit_to):
         return 1
     # TODO: This implementation assumes no exponent for nominator units
     multiplicator = 1
-    #print(f"{unit_from:}, {unit_to:}")
+    # print(f"{unit_from:}, {unit_to:}")
     unit_from, unit_to, multiplicator = deal_with_weird_units_to_and_from(unit_from, unit_to)
-    #print(f"{unit_from:}, {unit_to:}, {multiplicator}")
+    # print(f"{unit_from:}, {unit_to:}, {multiplicator}")
     if unit_from == unit_to:
         return multiplicator
     if "-" in unit_to:
         factor = -int(unit_to.split("-")[-1])
         just_string_to = unit_to.split("-")[0]
-        just_string_from = unit_from.split("-")[0]
+        if "-" in unit_from:
+            just_string_from = unit_from.split("-")[0]
+        # This is just for some weird cases in MEGAN
+        elif "^" in unit_from:
+            just_string_from = unit_from.split("^")[0]
+        else:
+            just_string_from = unit_from
+    elif "^" in unit_to:
+        factor = int(unit_to.split("^")[-1])
+        just_string_to = unit_to.split("^")[0]
+        just_string_from = unit_from.split("^")[0]  
     else:
         just_string_to = unit_to
         just_string_from = unit_from
