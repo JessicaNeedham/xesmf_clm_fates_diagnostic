@@ -43,10 +43,13 @@ def simple_conversion_numbers(base_unit_in, base_unit_out):
 def do_light_unit_string_conversion(unit):
     if "/" in unit:
         unit_nom_denom = unit.split("/")
-        unit_nom_denom[1] = unit_nom_denom[1].replace("^", "-")
         unit_nom_denom[0] = unit_nom_denom[0].replace("^", "")
-        if not unit_nom_denom[1][-1].isdigit():
-            unit_nom_denom[1] = f"{unit_nom_denom[1]}-1"
+        for i in range(1, len(unit_nom_denom)):
+            unit_nom_denom[i] = unit_nom_denom[i].replace("^", "-")
+            if not unit_nom_denom[i][-1].isdigit():
+                unit_nom_denom[i] = f"{unit_nom_denom[i]}-1"
+            elif unit_nom_denom[i][-2] != "-":
+                unit_nom_denom[i] = f"{unit_nom_denom[i][:-1]}-{unit_nom_denom[i][-1]}"
         unit = " ".join(unit_nom_denom)
     if "gC" in unit:
         unit = unit.replace("gC", "g")
@@ -90,9 +93,6 @@ def convert_weird_subunits(unit):
     elif "sec" in unit:
         new_unit = unit.replace("sec", "s")
         return new_unit, 1
-    elif "m2" in unit:
-        new_unit = unit.replace("m2", "m^2")
-        return new_unit, 1
     return unit, 1
 
 def deal_with_weird_units_to_and_from(unit_from, unit_to):
@@ -115,13 +115,8 @@ def unit_convert_single_unit(unit_from, unit_to):
     if "-" in unit_to:
         factor = -int(unit_to.split("-")[-1])
         just_string_to = unit_to.split("-")[0]
-        if "-" in unit_from:
-            just_string_from = unit_from.split("-")[0]
-        # This is just for some weird cases in MEGAN
-        elif "^" in unit_from:
-            just_string_from = unit_from.split("^")[0]
-        else:
-            just_string_from = unit_from
+        just_string_from = unit_from.split("-")[0]
+
     elif "^" in unit_to:
         factor = int(unit_to.split("^")[-1])
         just_string_to = unit_to.split("^")[0]
