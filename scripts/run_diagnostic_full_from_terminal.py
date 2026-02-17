@@ -89,12 +89,14 @@ def read_optional_arguments(arguments):
             run_dict[arg_key] = True
         else:
             print(f"Argument {arg} is not a valid argument and will be ignored")
-        if not os.path.exists(run_dict["outpath"]):
-            print(f"Output path {run_dict['outpath']} must exist")
-            print_help_message()
+
     for arg_key_opt, arg_val_opt in run_dict_optional_arguments.items():
         if arg_key_opt not in run_dict:
             run_dict[arg_key_opt] = arg_val_opt
+    # Checking that output path exists
+    if not os.path.exists(run_dict["outpath"]):
+        print(f"Output path {run_dict['outpath']} must exist")
+        print_help_message()
 
     # In case you are not working on NIRD, and forget to send weight-file
     if not os.path.exists(run_dict["weight"]):
@@ -122,7 +124,7 @@ if len(glob.glob(f"{run_path}*.nc")) < 1:
     print_help_message()
 
 ilamb_cfg = ilamb_configurations.IlambConfigurations("../tests/test-data/ilamb_CLMFATES.cfg")
-#print(ilamb_cfg.configurations["FATES_VEGC"].obsdatasets)
+print(ilamb_cfg.configurations["FATES_FIRE_CLOSS"].obsdatasets)
 #print(ilamb_cfg.configurations["pr"].obsdatasets)
 
 #sys.exit(4)
