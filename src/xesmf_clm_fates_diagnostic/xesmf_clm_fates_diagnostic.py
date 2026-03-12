@@ -16,9 +16,10 @@ import cartopy.crs as ccrs
 
 from .plotting_methods import make_generic_regridder, regrid_se_data, make_bias_plot, make_regridder_regular_to_coarsest_resolution, make_3D_plot
 from .infrastructure_help_functions import setup_nested_folder_structure_from_dict, read_pam_file#, clean_empty_folders_in_tree
-from  .misc_help_functions import get_unit_conversion_and_new_label, make_regridding_target_from_weightfile, get_unit_conversion_from_string, do_light_unit_string_conversion, SEASONS, calculate_rmse_from_bias
+from  .misc_help_functions import get_unit_conversion_and_new_label, make_regridding_target_from_weightfile, get_unit_conversion_from_string, do_light_unit_string_conversion, SEASONS, calculate_rmse_from_bias, is_flux
 
 MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
+days_in_months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 
 #def get_minimal_intersecting_year_range(year_range, year_range_other):
@@ -161,7 +162,8 @@ class XesmfCLMFatesDiagnostics:
         
         subfolder_structure = {
             f"{self.casename}": {
-                "trends": None, 
+                "trends": None,
+                "total_trends": None,
                 "clim_maps": ["ANN", "DJF", "MAM", "JJA", "SON"],
                 "seasonal_cycle": None, 
             }
@@ -333,6 +335,48 @@ class XesmfCLMFatesDiagnostics:
                 outd = xr.concat([outd, outd_yr], dim="time")
         return outd
 
+    def get_annual_sum_ts(self, year_range, varlist=None):
+        """
+        Get annual sum data for variables in varlist
+
+        Parameters
+        ----------
+        year_range : range
+            Of years to include
+        varlist : list
+            List of variables to get data for, if not supplied, the objects
+            varlist will be used. If the list includes variables not in the 
+            outputfiles, they will be 
+        """
+        outd = None
+        if varlist is None:
+            varlist = self.var_pams["VAR_LIST_MAIN"]
+        varlist_direct, varlist_composite = self.fix_varlists_for_composite_variables(varlist)
+
+        for year in year_range:
+            outd_yr = None
+            for month in range(12):                         
+                mfile = f"{self.datapath}/{self.casename}.{self.ftype_name}.{year:04d}-{month + 1:02d}.nc"
+                outd_here = xr.open_dataset(mfile, engine="netcdf4")[varlist_direct]
+                outd_here = self.add_composite_variables(outd_here, varlist_composite)
+                outd_here = multiply_by_fates_fraction(outd_here)
+                # assuming fluxes are in seconds - make this more general so it also handles years or days etc.
+                outd_here = outd_here * 86400 * days_in_months[month] # go from s-1 to total in the month 
+                # print(outd_here)
+                # sys.exit(4)
+                if not outd_yr:
+                    outd_yr = outd_here
+                else:
+                    outd_yr = xr.concat([outd_yr, outd_here], dim="time")
+            outd_yr = outd_yr.sum(dim="time") # value is now kg C m-2 yr-1
+            if not outd:
+                outd = outd_yr
+            else: 
+                outd = xr.concat([outd, outd_yr], dim="time")
+        return outd
+
+
+    
     def plot_all_the_variables_on_map(self, outd, year_range, plottype):
         """
         Plot maps of all variables in varlist
@@ -456,6 +500,7 @@ class XesmfCLMFatesDiagnostics:
             year_range_full = np.arange(year_range_full[0], year_range_full[1])
         if not mute_trend:
             self.make_global_yearly_trends(year_range=year_range_full)
+            self.make_global_yearly_total_trends(year_range=year_range_full)
         if not mute_maps:
             outd = self.get_annual_data(year_range)
 
@@ -636,6 +681,71 @@ class XesmfCLMFatesDiagnostics:
         return        
         #for year in find_case_year_range(self):
 
+    def make_global_yearly_total_trends(self, varlist = None, year_range = None):
+        if varlist is None:
+            varlist = self.var_pams["VAR_LIST_MAIN"]
+        if year_range is not None:
+            yr_start = year_range[0]
+            yr_end = year_range[1]
+            missing = False
+        else:
+            yr_start, yr_end, missing = self.find_case_year_range()
+            year_range =np.arange(yr_start, yr_end + 1)
+        if yr_end == yr_start:
+            print("Can not make global annual trend plots from just one year of data")
+            return
+        self.add_to_unit_dict(varlist)
+        ts_data = np.zeros((len(varlist), len(year_range)))
+        weights = None
+        varlist_short = [v for v in varlist if v not in self.help_variables]
+        if not missing:
+           
+            for varnum, var in enumerate(sorted(varlist_short, key=str.casefold)):
+                # establish if we are dealing with a flux (need to sum monthly files) or a
+                # stock (need to take mean of monthly files)
+                flux = is_flux(self.unit_dict[var])
+                if flux: 
+                    outd = self.get_annual_sum_ts(year_range, varlist=varlist) # this converts seconds to years
+                else:
+                    outd = self.get_annual_mean_ts(year_range, varlist=varlist)
+                    # unit conversion here
+                    # we want to end up with Pg C 
+                outd[var] = outd[var] * 1e-12   # kg to Pg
+      
+                weights = outd["area"]*1e6*outd["landfrac"] # vars are in m-2, area in km-2 so scale up
+                weighted = outd[var].weighted(weights.fillna(0))
+                if "lat" in outd.dims and len(outd[var].values.shape) > 3:
+                    ts_data[varnum, :] = weighted.sum(["lon", "lat"]).values[:,0]
+                elif "lat" in outd.dims: 
+                    ts_data[varnum, :] = weighted.sum(["lon", "lat"]).values
+                elif "lndgrid" in outd.dims and len(outd[var].values.shape) > 2:
+                    ts_data[varnum, :] = weighted.sum(["lndgrid"]).values[:,0]
+                else:
+                    ts_data[varnum, :] = weighted.sum(["lndgrid"]).values
+
+        fig_count = 0
+        fig, axs = plt.subplots(ncols = 5, nrows= 5, figsize=(30,30))
+        #fig.suptitle("Global annual trends")
+        for varnum, var in enumerate(sorted(varlist_short,key=str.casefold)):
+            if varnum%25 == 0 and varnum > 0:
+                fig.tight_layout()
+                fig.savefig(f"{self.outdir}/total_trends/{self.casename}_glob_ann_total_trendplot_num{fig_count}_{yr_start}-{yr_end}.png")
+                plt.clf()
+                fig, axs = plt.subplots(ncols = 5, nrows= 5, figsize=(30,30))
+                fig_count = fig_count + 1
+            # TODO: Make this more general to handle other unit changes
+            shift, ylabel = get_unit_conversion_and_new_label(self.unit_dict[var])
+            print('JFN shift', shift)
+            axs[(varnum%25)//5, (varnum%25)%5].plot(year_range, ts_data[varnum, :]+ shift)
+            axs[(varnum%25)//5, (varnum%25)%5].set_title(var, size=30)
+            axs[(varnum%25)//5, (varnum%25)%5].set_ylabel(ylabel, size=25)
+            axs[(varnum%25)//5, (varnum%25)%5].set_xlabel("Year", size=25)
+        fig.tight_layout()
+        fig.savefig(f"{self.outdir}/total_trends/{self.casename}_glob_ann_total_trendplot_num{fig_count}_{yr_start}-{yr_end}.png")
+        plt.clf()
+        return        
+
+        
 
     def make_table_diagnostics(self):
         pass

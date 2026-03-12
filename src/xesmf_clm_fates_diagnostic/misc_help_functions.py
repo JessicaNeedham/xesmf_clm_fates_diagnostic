@@ -158,6 +158,12 @@ def get_unit_conversion_from_string(obs_unit, mod_unit):
         return unit_conversion, mod_unit
     return unit_conversion, obs_unit
 
+def is_flux(unit):
+    flux = False
+    flux_units = ['year', 'yr', '%y', 'y-', 'second', 'sec', '%s', 's-']
+    if any(flx in unit for flx in flux_units):
+        flux=True
+    return flux
 
 def make_regridding_target_from_weightfile(weight_file, filename_exmp):
     exmp_dataset = xr.open_dataset(filename_exmp)
